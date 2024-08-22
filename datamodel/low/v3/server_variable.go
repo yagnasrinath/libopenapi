@@ -1,12 +1,16 @@
 package v3
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
-	"github.com/pb33f/libopenapi/datamodel/low"
-	"gopkg.in/yaml.v3"
 	"sort"
 	"strings"
+
+	"github.com/pb33f/libopenapi/datamodel/low"
+	"github.com/pb33f/libopenapi/orderedmap"
+	"github.com/pb33f/libopenapi/utils"
+	"gopkg.in/yaml.v3"
 )
 
 // ServerVariable represents a low-level OpenAPI 3+ ServerVariable object.
@@ -20,6 +24,7 @@ type ServerVariable struct {
 	Enum        []low.NodeReference[string]
 	Default     low.NodeReference[string]
 	Description low.NodeReference[string]
+	Extensions  *orderedmap.Map[low.KeyReference[string], low.ValueReference[*yaml.Node]]
 	KeyNode     *yaml.Node
 	RootNode    *yaml.Node
 	*low.Reference
@@ -31,9 +36,27 @@ func (s *ServerVariable) GetRootNode() *yaml.Node {
 	return s.RootNode
 }
 
+// GetExtensions returns all Paths extensions and satisfies the low.HasExtensions interface.
+func (s *ServerVariable) GetExtensions() *orderedmap.Map[low.KeyReference[string], low.ValueReference[*yaml.Node]] {
+	return s.Extensions
+}
+
 // GetKeyNode returns the key yaml node of the ServerVariable object.
 func (s *ServerVariable) GetKeyNode() *yaml.Node {
 	return s.RootNode
+}
+
+// Build will extensions.
+func (p *ServerVariable) Build(ctx context.Context, keyNode, root *yaml.Node) error {
+	root = utils.NodeAlias(root)
+	p.KeyNode = keyNode
+	p.RootNode = root
+	utils.CheckForMergeNodes(root)
+	p.Reference = new(low.Reference)
+	p.Nodes = low.ExtractNodes(ctx, root)
+	p.Extensions = low.ExtractExtensions(root)
+	low.ExtractExtensionNodes(ctx, p.Extensions, p.Nodes)
+	return nil
 }
 
 // Hash will return a consistent SHA256 Hash of the ServerVariable object
@@ -53,5 +76,6 @@ func (s *ServerVariable) Hash() [32]byte {
 	if !s.Description.IsEmpty() {
 		f = append(f, s.Description.Value)
 	}
+	f = append(f, low.HashExtensions(s.Extensions)...)
 	return sha256.Sum256([]byte(strings.Join(f, "|")))
 }
